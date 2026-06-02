@@ -11,7 +11,7 @@ import click
 import numpy as np
 from PIL import Image
 
-from .assembler import render
+from .assembler import montage, render
 from .cache_parser import discover_cache_files, parse_cache_file
 from .constraints.resolution import ResolutionOracle
 from .evidence import build_manifest
@@ -21,6 +21,9 @@ from .placement.edge_heuristic import mean_seam_cost
 from .placement.edge_heuristic import reconstruct as place_tiles
 from .segmentation import connected_components
 from .tile_store import TileStore
+
+
+MONTAGE_PADDING = 8  # transparent gap between stacked scenes in the final reconstruction
 
 
 def _parse_resolution(text: str) -> tuple[int, int]:
@@ -143,7 +146,10 @@ def reconstruct(
         )
 
     scene_records = []
-    ocr_index = []
+    scene_canvases = []
+    final_text_parts = []
+    final_words = []
+    y_offset = 0  # running top edge of each scene within the montage
     for cost, n_tiles, grid in reconstructed[:max_scenes]:
         canvas = render(grid)
         rows = max(r for r, _ in grid) + 1
@@ -151,24 +157,42 @@ def reconstruct(
         idx = len(scene_records)
         name = f"scene_{idx:03d}_{n_tiles}tiles_{cols}x{rows}_conf{cost:.1f}.png"
         Image.fromarray(canvas, "RGBA").save(os.path.join(output, name))
-        record = {"image": name, "tiles": n_tiles, "grid_cols": cols, "grid_rows": rows, "mean_seam_cost": round(cost, 2)}
+        scene_records.append(
+            {"image": name, "tiles": n_tiles, "grid_cols": cols, "grid_rows": rows, "mean_seam_cost": round(cost, 2)}
+        )
+        scene_canvases.append(canvas)
 
+        # OCR the final reconstruction in its natural per-scene strips at full upscale
+        # (so quality isn't lost shrinking one huge image), consolidated into one output.
         if do_ocr:
             words = ocr_image(canvas, languages=ocr_lang, min_confidence=ocr_min_conf, scale=ocr_scale)
             text = words_to_text(words)
-            record["ocr_text"] = text
-            record["ocr_words"] = words_to_records(words, scale=ocr_scale)
             if text:
-                with open(os.path.join(output, name.replace(".png", ".txt")), "w", encoding="utf-8") as fh:
-                    fh.write(text)
-                ocr_index.append({"scene": name, "text": text})
-
-        scene_records.append(record)
+                final_text_parts.append(text)
+                for rec in words_to_records(words, scale=ocr_scale):
+                    rec["bbox"][1] += y_offset  # map y into montage coordinates
+                    rec["scene"] = name
+                    final_words.append(rec)
+        y_offset += canvas.shape[0] + MONTAGE_PADDING
     rendered = len(scene_records)
 
-    if do_ocr:
-        with open(os.path.join(output, "ocr_index.json"), "w", encoding="utf-8") as fh:
-            json.dump(ocr_index, fh, indent=2)
+    # Final reconstruction: one combined canvas of all scenes (most-confident first).
+    final_record = None
+    final_canvas = montage(scene_canvases, padding=MONTAGE_PADDING)
+    if final_canvas.size:
+        Image.fromarray(final_canvas, "RGBA").save(os.path.join(output, "final_reconstruction.png"))
+        final_record = {
+            "image": "final_reconstruction.png",
+            "width": int(final_canvas.shape[1]),
+            "height": int(final_canvas.shape[0]),
+        }
+        if do_ocr:
+            final_text = "\n".join(final_text_parts)
+            final_record["ocr_scale"] = ocr_scale
+            final_record["ocr_text"] = final_text
+            final_record["ocr_words"] = final_words
+            with open(os.path.join(output, "final_reconstruction.txt"), "w", encoding="utf-8") as fh:
+                fh.write(final_text)
 
     manifest = build_manifest(discover_cache_files(source), command="reconstruct")
     manifest.update(
@@ -191,6 +215,7 @@ def reconstruct(
                 "modulo_ok": constraint.modulo_ok,
                 "notes": constraint.notes,
             },
+            "final_reconstruction": final_record,
             "scenes": scene_records,
         }
     )
@@ -199,9 +224,11 @@ def reconstruct(
 
     click.echo(
         f"Reconstructed {rendered} scene(s) from {len(full)} full tiles "
-        f"({len(unique)} unique, {partials_excluded} partial excluded); "
+        f"({len(unique)} unique, {partials_excluded} partial excluded) -> final_reconstruction.png; "
         f"resolution candidates: {constraint.candidates or 'unknown'}"
     )
+    if do_ocr and final_record:
+        click.echo(f"OCR -> final_reconstruction.txt ({len(final_record.get('ocr_words', []))} words)")
 
 
 if __name__ == "__main__":  # pragma: no cover

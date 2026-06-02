@@ -31,3 +31,20 @@ def render(grid: dict[tuple[int, int], Tile]) -> np.ndarray:
     for (r, c), tile in grid.items():
         canvas[y[r] : y[r] + tile.height, x[c] : x[c] + tile.width] = tile.pixels
     return canvas
+
+
+def montage(images: list[np.ndarray], padding: int = 8) -> np.ndarray:
+    """Stack RGBA canvases vertically (left-aligned) into one 'final reconstruction'
+    canvas, with transparent padding between them. Reading order is top-to-bottom."""
+    images = [im for im in images if im.size]
+    if not images:
+        return np.zeros((0, 0, 4), dtype=np.uint8)
+    width = max(im.shape[1] for im in images)
+    height = sum(im.shape[0] for im in images) + padding * (len(images) - 1)
+    canvas = np.zeros((height, width, 4), dtype=np.uint8)
+    y = 0
+    for im in images:
+        h, w = im.shape[:2]
+        canvas[y : y + h, 0:w] = im
+        y += h + padding
+    return canvas

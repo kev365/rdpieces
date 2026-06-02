@@ -44,3 +44,8 @@ def test_reconstruct_produces_scene_images_and_manifest(tmp_path):
     assert manifest["command"] == "reconstruct"
     assert manifest["scenes_rendered"] >= 1
     assert manifest["unique_tiles"] == 30
+
+    # The combined final reconstruction is always produced.
+    assert (out / "final_reconstruction.png").exists()
+    assert manifest["final_reconstruction"]["width"] > 0
+    assert manifest["final_reconstruction"]["height"] > 0
