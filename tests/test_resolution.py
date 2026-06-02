@@ -25,7 +25,7 @@ def test_candidates_include_1920x1080_for_0_56():
 
 
 def test_user_resolution_overrides_and_sets_grid():
-    c = ResolutionOracle.from_tiles([mk(64, 64), mk(64, 56)]).constraint(user_resolution=(1920, 1080))
+    c = ResolutionOracle.from_tiles([mk(64, 64), mk(64, 56)]).constraint(resolution=(1920, 1080))
     assert (c.width, c.height) == (1920, 1080)
     assert (c.cols, c.rows) == (30, 17)  # ceil(1920/64), ceil(1080/64)
     assert c.source == "user"
@@ -34,7 +34,7 @@ def test_user_resolution_overrides_and_sets_grid():
 
 def test_user_resolution_modulo_mismatch_is_flagged():
     # Cache shows height_mod64 == 56, but the analyst claims 1920x1024 (1024 % 64 == 0).
-    c = ResolutionOracle.from_tiles([mk(64, 64), mk(64, 56)]).constraint(user_resolution=(1920, 1024))
+    c = ResolutionOracle.from_tiles([mk(64, 64), mk(64, 56)]).constraint(resolution=(1920, 1024))
     assert c.modulo_ok is False
     assert any("mismatch" in n.lower() for n in c.notes)
 

@@ -21,7 +21,7 @@ dependencies = [
 # core parser/extractor installs everywhere (incl. brand-new Python versions).
 cv = ["opencv-python-headless>=4.8", "scikit-image>=0.22", "scipy>=1.11", "networkx>=3.0"]
 ocr = ["pytesseract>=0.3.10"]
-artifacts = ["python-registry>=1.3", "python-evtx>=0.7"]
+artifacts = ["python-registry>=1.3", "python-evtx>=0.7", "defusedxml>=0.7"]
 gui = ["PyQt6>=6.5"]
 report = ["reportlab>=4.0"]
 ml = ["torch>=2.1"]

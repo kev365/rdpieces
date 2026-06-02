@@ -13,6 +13,7 @@ from PIL import Image
 
 from .assembler import montage, render
 from .cache_parser import discover_cache_files, parse_cache_file
+from .constraints.artifacts import collect_artifacts
 from .constraints.resolution import ResolutionOracle
 from .evidence import build_manifest
 from .matcher import best_buddy_edges, dissimilarity_matrices
@@ -70,6 +71,7 @@ def extract(source: str, output: str) -> None:
 @click.option("--output", required=True, help="Output directory for reconstructed scenes.")
 @click.option("--resolution", default=None, help="Known session resolution WIDTHxHEIGHT, e.g. 1920x1080.")
 @click.option("--force", is_flag=True, help="Accept --resolution even if it conflicts with cache geometry.")
+@click.option("--artifacts", default=None, help="File or dir of host artifacts (.rdp / NTUSER.DAT / RdpCoreTS .evtx) to infer resolution/host/OS.")
 @click.option("--min-scene", default=6, show_default=True, help="Minimum tiles for a scene to be rendered.")
 @click.option("--max-scene", default=1500, show_default=True, help="Skip scenes larger than this (logged).")
 @click.option("--max-scenes", default=50, show_default=True, help="Cap rendered scenes (logged).")
@@ -79,7 +81,7 @@ def extract(source: str, output: str) -> None:
 @click.option("--ocr-scale", default=6, show_default=True, help="Upscale factor before OCR.")
 @click.option("--ocr-min-conf", default=40.0, show_default=True, help="Drop OCR words below this confidence.")
 def reconstruct(
-    source, output, resolution, force, min_scene, max_scene, max_scenes, flat_threshold,
+    source, output, resolution, force, artifacts, min_scene, max_scene, max_scenes, flat_threshold,
     ocr, ocr_lang, ocr_scale, ocr_min_conf,
 ):
     """Reconstruct screen regions from a cache by edge-matching tiles into scenes."""
@@ -88,10 +90,23 @@ def reconstruct(
     if not unique:
         raise click.ClickException(f"No tiles found under {source!r}")
 
-    # Resolution constraint (cache geometry, optionally overridden by --resolution).
+    # Resolution constraint: cache geometry, optionally overridden by --resolution,
+    # else inferred from host artifacts (--artifacts) when compatible with the cache.
     oracle = ResolutionOracle.from_tiles(unique)
+    bundle = collect_artifacts(artifacts) if artifacts else None
     user_res = _parse_resolution(resolution) if resolution else None
-    constraint = oracle.constraint(user_res)
+
+    chosen_res, chosen_source = user_res, "user"
+    if user_res is None and bundle is not None and bundle.width and bundle.height:
+        if bundle.width % 64 == oracle.width_mod64 and bundle.height % 64 == oracle.height_mod64:
+            chosen_res, chosen_source = (bundle.width, bundle.height), bundle.resolution_source
+        else:
+            click.echo(
+                f"[artifacts] {bundle.resolution_source} resolution {bundle.width}x{bundle.height} "
+                f"conflicts with cache edge geometry; ignoring for grid bounds."
+            )
+
+    constraint = oracle.constraint(chosen_res, source=chosen_source)
     if user_res is not None and not constraint.modulo_ok and not force:
         raise click.ClickException(constraint.notes[0] if constraint.notes else "Resolution conflict; use --force.")
 
@@ -215,6 +230,20 @@ def reconstruct(
                 "modulo_ok": constraint.modulo_ok,
                 "notes": constraint.notes,
             },
+            "artifacts": (
+                None
+                if bundle is None
+                else {
+                    "resolution_source": bundle.resolution_source,
+                    "width": bundle.width,
+                    "height": bundle.height,
+                    "multimon": bundle.multimon,
+                    "os_major": bundle.os_major,
+                    "hosts": bundle.hosts,
+                    "event_count": len(bundle.events),
+                    "sources": bundle.sources,
+                }
+            ),
             "final_reconstruction": final_record,
             "scenes": scene_records,
         }

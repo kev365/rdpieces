@@ -68,17 +68,19 @@ class ResolutionOracle:
             if w % 64 == self.width_mod64 and h % 64 == self.height_mod64
         ]
 
-    def constraint(self, user_resolution: tuple[int, int] | None = None) -> CanvasConstraint:
+    def constraint(
+        self, resolution: tuple[int, int] | None = None, source: str = "user"
+    ) -> CanvasConstraint:
         wmod, hmod = self.width_mod64, self.height_mod64
         candidates = self._candidates()
 
-        if user_resolution is not None:
-            width, height = user_resolution
+        if resolution is not None:
+            width, height = resolution
             modulo_ok = (width % 64 == wmod) and (height % 64 == hmod)
             notes: list[str] = []
             if not modulo_ok:
                 notes.append(
-                    f"User resolution {width}x{height} MISMATCH with cache edge-tile "
+                    f"{source} resolution {width}x{height} MISMATCH with cache edge-tile "
                     f"geometry: expected (W,H) mod 64 == ({wmod},{hmod}) but got "
                     f"({width % 64},{height % 64}). Pass --force to accept."
                 )
@@ -90,7 +92,7 @@ class ResolutionOracle:
                 cols=math.ceil(width / 64),
                 rows=math.ceil(height / 64),
                 candidates=candidates,
-                source="user",
+                source=source,
                 confidence=1.0 if modulo_ok else 0.5,
                 modulo_ok=modulo_ok,
                 notes=notes,
