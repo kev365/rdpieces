@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..compatibility import down_dissim
 from ..matcher import dissimilarity_matrices
 from ..tile import Tile
 
@@ -98,6 +99,42 @@ def reconstruct(
     min_r = min(r for r, _ in placed)
     min_c = min(c for _, c in placed)
     return {(r - min_r, c - min_c): tiles[idx] for (r, c), idx in placed.items()}
+
+
+def attach_bottom_partials(
+    grid: dict[tuple[int, int], Tile],
+    partials: list[Tile],
+    max_cost: float = 1500.0,
+) -> dict[tuple[int, int], Tile]:
+    """Place partial-height (bottom-edge) tiles below the scene's bottom row.
+
+    Each partial's top border is matched against the bottom border of the bottom-row
+    full tiles; the best-fitting (below max_cost) is anchored at (bottom_row+1, col).
+    One partial per column, each partial used at most once. Returns a new grid.
+    """
+    if not grid or not partials:
+        return dict(grid)
+    placed = dict(grid)
+    bottom_row = max(r for r, _ in grid)
+    bottom_cells = [(r, c) for (r, c) in grid if r == bottom_row]
+
+    candidates = []
+    for pi, partial in enumerate(partials):
+        for (r, c) in bottom_cells:
+            cost = down_dissim(grid[(r, c)], partial)
+            if cost < max_cost:
+                candidates.append((cost, pi, c))
+    candidates.sort(key=lambda x: x[0])
+
+    used_partials: set[int] = set()
+    filled_cols: set[int] = set()
+    for cost, pi, col in candidates:
+        if pi in used_partials or col in filled_cols:
+            continue
+        placed[(bottom_row + 1, col)] = partials[pi]
+        used_partials.add(pi)
+        filled_cols.add(col)
+    return placed
 
 
 def mean_seam_cost(

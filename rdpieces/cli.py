@@ -18,7 +18,7 @@ from .constraints.resolution import ResolutionOracle
 from .evidence import build_manifest
 from .matcher import best_buddy_edges, dissimilarity_matrices
 from .ocr.engine import ocr_image, tesseract_available, words_to_records, words_to_text
-from .placement.edge_heuristic import mean_seam_cost
+from .placement.edge_heuristic import attach_bottom_partials, mean_seam_cost
 from .placement.edge_heuristic import reconstruct as place_tiles
 from .segmentation import connected_components
 from .tile_store import TileStore
@@ -164,8 +164,19 @@ def reconstruct(
     scene_canvases = []
     final_text_parts = []
     final_words = []
+    partials_pool = [t for t in unique if not t.is_full]  # bottom/right edge tiles
+    partials_attached = 0
     y_offset = 0  # running top edge of each scene within the montage
     for cost, n_tiles, grid in reconstructed[:max_scenes]:
+        # Anchor partial (bottom-edge) tiles below this scene, consuming the pool.
+        if partials_pool:
+            grown = attach_bottom_partials(grid, partials_pool)
+            new_cells = set(grown) - set(grid)
+            if new_cells:
+                used_ids = {id(grown[cell]) for cell in new_cells}
+                partials_pool = [p for p in partials_pool if id(p) not in used_ids]
+                partials_attached += len(new_cells)
+                grid = grown
         canvas = render(grid)
         rows = max(r for r, _ in grid) + 1
         cols = max(c for _, c in grid) + 1
@@ -215,7 +226,8 @@ def reconstruct(
             "total_tiles": len(store.tiles),
             "unique_tiles": len(unique),
             "full_tiles_matched": len(full),
-            "partial_tiles_excluded": partials_excluded,
+            "partial_tiles": partials_excluded,
+            "partial_tiles_attached": partials_attached,
             "components": len(components),
             "scenes_candidate": len(candidate_scenes),
             "scenes_rendered": rendered,
@@ -253,8 +265,8 @@ def reconstruct(
 
     click.echo(
         f"Reconstructed {rendered} scene(s) from {len(full)} full tiles "
-        f"({len(unique)} unique, {partials_excluded} partial excluded) -> final_reconstruction.png; "
-        f"resolution candidates: {constraint.candidates or 'unknown'}"
+        f"({len(unique)} unique; {partials_attached}/{partials_excluded} partial edge tiles attached) "
+        f"-> final_reconstruction.png; resolution candidates: {constraint.candidates or 'unknown'}"
     )
     if do_ocr and final_record:
         click.echo(f"OCR -> final_reconstruction.txt ({len(final_record.get('ocr_words', []))} words)")

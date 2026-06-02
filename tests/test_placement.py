@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image
 
 from rdpieces.matcher import dissimilarity_matrices
-from rdpieces.placement.edge_heuristic import mean_seam_cost, reconstruct
+from rdpieces.placement.edge_heuristic import attach_bottom_partials, mean_seam_cost, reconstruct
 from rdpieces.tile import Tile
 
 
@@ -70,6 +70,31 @@ def test_reconstructs_clean_image_with_high_adjacency_accuracy():
 
     assert len(grid) == cols * rows
     assert adjacency_accuracy(grid, cols) >= 0.95
+
+
+def test_attach_bottom_partials_places_partials_in_bottom_row():
+    rng = np.random.default_rng(7)
+    height, width = 2 * 64 + 56, 2 * 64  # 2x2 full tiles + a 56px-tall bottom row
+    ctrl = rng.integers(0, 256, (8, 8, 3), np.uint8)
+    img = np.asarray(Image.fromarray(ctrl).resize((width, height), Image.BICUBIC), np.uint8)
+
+    def tile(y, x, h, w, idx):
+        block = img[y : y + h, x : x + w]
+        rgba = np.dstack([block, np.full((h, w), 255, np.uint8)]).astype(np.uint8)
+        return Tile(0, 0, w, h, 32, rgba, "syn", idx)
+
+    full = [tile(r * 64, c * 64, 64, 64, r * 2 + c) for r in range(2) for c in range(2)]
+    partials = [tile(128, c * 64, 56, 64, 100 + c) for c in range(2)]
+
+    right, down = dissimilarity_matrices(full)
+    grid = reconstruct(full, right, down)
+    out = attach_bottom_partials(grid, partials, max_cost=1e9)
+
+    new_cells = set(out) - set(grid)
+    bottom = max(r for r, _ in grid)
+    assert len(new_cells) == 2
+    assert all(r == bottom + 1 for r, _ in new_cells)
+    assert {c for _, c in new_cells} == {0, 1}
 
 
 def test_mean_seam_cost_low_for_correct_reconstruction():
