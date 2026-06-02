@@ -11,7 +11,12 @@ import numpy as np
 from PIL import Image
 
 from rdpieces.matcher import dissimilarity_matrices
-from rdpieces.placement.edge_heuristic import attach_bottom_partials, mean_seam_cost, reconstruct
+from rdpieces.placement.edge_heuristic import (
+    attach_bottom_partials,
+    mean_seam_cost,
+    reconstruct,
+    refine_swaps,
+)
 from rdpieces.tile import Tile
 
 
@@ -95,6 +100,22 @@ def test_attach_bottom_partials_places_partials_in_bottom_row():
     assert len(new_cells) == 2
     assert all(r == bottom + 1 for r, _ in new_cells)
     assert {c for _, c in new_cells} == {0, 1}
+
+
+def test_refine_swaps_repairs_a_corrupted_placement():
+    cols, rows = 3, 3
+    tiles = make_tiles(cols, rows, seed=5)
+    right, down = dissimilarity_matrices(tiles)
+    correct = {(r, c): tiles[r * cols + c] for r in range(rows) for c in range(cols)}
+
+    corrupted = dict(correct)  # swap two non-adjacent (diagonal) tiles
+    corrupted[(0, 0)], corrupted[(1, 1)] = correct[(1, 1)], correct[(0, 0)]
+
+    refined = refine_swaps(corrupted, tiles, right, down)
+
+    assert mean_seam_cost(refined, tiles, right, down) <= mean_seam_cost(corrupted, tiles, right, down)
+    assert refined[(0, 0)] is correct[(0, 0)]
+    assert refined[(1, 1)] is correct[(1, 1)]
 
 
 def test_mean_seam_cost_low_for_correct_reconstruction():

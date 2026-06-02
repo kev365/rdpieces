@@ -18,7 +18,7 @@ from .constraints.resolution import ResolutionOracle
 from .evidence import build_manifest
 from .matcher import best_buddy_edges, dissimilarity_matrices
 from .ocr.engine import ocr_image, tesseract_available, words_to_records, words_to_text
-from .placement.edge_heuristic import attach_bottom_partials, mean_seam_cost
+from .placement.edge_heuristic import attach_bottom_partials, mean_seam_cost, refine_swaps
 from .placement.edge_heuristic import reconstruct as place_tiles
 from .segmentation import connected_components
 from .tile_store import TileStore
@@ -76,13 +76,14 @@ def extract(source: str, output: str) -> None:
 @click.option("--max-scene", default=1500, show_default=True, help="Skip scenes larger than this (logged).")
 @click.option("--max-scenes", default=50, show_default=True, help="Cap rendered scenes (logged).")
 @click.option("--flat-threshold", default=10.0, show_default=True, help="Border variance below which an edge is ignored (flat-tile suppression). 0 disables.")
+@click.option("--refine/--no-refine", default=True, show_default=True, help="MRF-energy local-search refinement of each scene.")
 @click.option("--ocr", is_flag=True, help="Run OCR on each reconstructed scene (requires the Tesseract binary).")
 @click.option("--ocr-lang", default="eng", show_default=True, help="Tesseract language(s), e.g. eng or eng+deu.")
 @click.option("--ocr-scale", default=6, show_default=True, help="Upscale factor before OCR.")
 @click.option("--ocr-min-conf", default=40.0, show_default=True, help="Drop OCR words below this confidence.")
 def reconstruct(
     source, output, resolution, force, artifacts, min_scene, max_scene, max_scenes, flat_threshold,
-    ocr, ocr_lang, ocr_scale, ocr_min_conf,
+    refine, ocr, ocr_lang, ocr_scale, ocr_min_conf,
 ):
     """Reconstruct screen regions from a cache by edge-matching tiles into scenes."""
     store = TileStore.load(source)
@@ -147,6 +148,8 @@ def reconstruct(
         sub = [full[i] for i in comp]
         sub_right, sub_down = right[np.ix_(idx, idx)], down[np.ix_(idx, idx)]
         grid = place_tiles(sub, sub_right, sub_down, max_rows=rows_bound, max_cols=cols_bound)
+        if refine:
+            grid = refine_swaps(grid, sub, sub_right, sub_down)
         cost = mean_seam_cost(grid, sub, sub_right, sub_down)
         reconstructed.append((cost, len(comp), grid))
 

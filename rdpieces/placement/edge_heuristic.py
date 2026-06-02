@@ -137,6 +137,58 @@ def attach_bottom_partials(
     return placed
 
 
+def refine_swaps(
+    grid: dict[tuple[int, int], Tile],
+    tiles: list[Tile],
+    right: np.ndarray,
+    down: np.ndarray,
+    max_passes: int = 3,
+) -> dict[tuple[int, int], Tile]:
+    """Local-search MRF-energy refinement: repeatedly swap two placed tiles whenever
+    it lowers the total adjacency (seam) energy, until no pass improves. Reduces the
+    same MRF energy a loopy-BP pass targets, and repairs greedy mis-placements.
+    """
+    pos = {id(t): i for i, t in enumerate(tiles)}
+    assign = {cell: pos[id(t)] for cell, t in grid.items()}
+    cells = list(assign)
+
+    def cell_energy(cell: tuple[int, int], idx: int) -> float:
+        r, c = cell
+        total = 0.0
+        for (nr, nc, get) in (
+            (r, c + 1, lambda n: right[idx, n]),   # neighbour to the right
+            (r, c - 1, lambda n: right[n, idx]),   # neighbour to the left
+            (r + 1, c, lambda n: down[idx, n]),    # neighbour below
+            (r - 1, c, lambda n: down[n, idx]),    # neighbour above
+        ):
+            nidx = assign.get((nr, nc))
+            if nidx is not None:
+                cost = get(nidx)
+                if np.isfinite(cost):
+                    total += float(cost)
+        return total
+
+    for _ in range(max_passes):
+        improved = False
+        for i in range(len(cells)):
+            for j in range(i + 1, len(cells)):
+                ca, cb = cells[i], cells[j]
+                ia, ib = assign[ca], assign[cb]
+                if ia == ib:
+                    continue
+                before = cell_energy(ca, ia) + cell_energy(cb, ib)
+                assign[ca], assign[cb] = ib, ia
+                after = cell_energy(ca, ib) + cell_energy(cb, ia)
+                if after < before - 1e-9:
+                    improved = True
+                else:
+                    assign[ca], assign[cb] = ia, ib  # revert
+        if not improved:
+            break
+
+    return {cell: tiles[idx] for cell, idx in assign.items()}
+
+
 def mean_seam_cost(
     grid: dict[tuple[int, int], Tile],
     tiles: list[Tile],
