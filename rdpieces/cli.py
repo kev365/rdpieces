@@ -20,6 +20,7 @@ from .matcher import best_buddy_edges, dissimilarity_matrices
 from .ocr.engine import ocr_image, tesseract_available, words_to_records, words_to_text
 from .placement.edge_heuristic import attach_bottom_partials, mean_seam_cost, refine_swaps
 from .placement.edge_heuristic import reconstruct as place_tiles
+from .report import build_timeline, words_to_hocr, write_pdf_report
 from .segmentation import connected_components
 from .tile_store import TileStore
 
@@ -81,9 +82,10 @@ def extract(source: str, output: str) -> None:
 @click.option("--ocr-lang", default="eng", show_default=True, help="Tesseract language(s), e.g. eng or eng+deu.")
 @click.option("--ocr-scale", default=6, show_default=True, help="Upscale factor before OCR.")
 @click.option("--ocr-min-conf", default=40.0, show_default=True, help="Drop OCR words below this confidence.")
+@click.option("--report", is_flag=True, help="Also write a PDF report (requires the reportlab extra).")
 def reconstruct(
     source, output, resolution, force, artifacts, min_scene, max_scene, max_scenes, flat_threshold,
-    refine, ocr, ocr_lang, ocr_scale, ocr_min_conf,
+    refine, ocr, ocr_lang, ocr_scale, ocr_min_conf, report,
 ):
     """Reconstruct screen regions from a cache by edge-matching tiles into scenes."""
     store = TileStore.load(source)
@@ -263,6 +265,44 @@ def reconstruct(
             "scenes": scene_records,
         }
     )
+
+    # Session timeline: cache-file mtimes merged with any RDP event timestamps.
+    timeline = build_timeline(
+        [(s["path"], s["mtime"]) for s in manifest["sources"]],
+        bundle.events if bundle else [],
+    )
+    with open(os.path.join(output, "timeline.json"), "w", encoding="utf-8") as fh:
+        json.dump(timeline, fh, indent=2)
+    manifest["timeline_events"] = len(timeline)
+
+    # hOCR for the final reconstruction, synthesised from the consolidated words.
+    if do_ocr and final_record and final_record.get("ocr_words"):
+        hocr = words_to_hocr(
+            final_record["ocr_words"], "final_reconstruction.png",
+            final_record["width"], final_record["height"],
+        )
+        with open(os.path.join(output, "final_reconstruction.hocr"), "w", encoding="utf-8") as fh:
+            fh.write(hocr)
+
+    if report:
+        res = f"{constraint.width}x{constraint.height}" if constraint.width else f"candidates {constraint.candidates}"
+        try:
+            write_pdf_report(
+                os.path.join(output, "report.pdf"),
+                summary={
+                    "tool": f"rdpieces {manifest['version']}",
+                    "source": source,
+                    "unique_tiles": len(unique),
+                    "scenes_rendered": rendered,
+                    "resolution": res,
+                    "resolution_source": constraint.source,
+                },
+                ocr_text=(final_record.get("ocr_text", "") if final_record else ""),
+                final_image_path=(os.path.join(output, "final_reconstruction.png") if final_record else None),
+            )
+        except Exception as exc:  # reportlab missing or render error
+            click.echo(f"[report] PDF generation skipped: {exc}")
+
     with open(os.path.join(output, "manifest.json"), "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, indent=2)
 
