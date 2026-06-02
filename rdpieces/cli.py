@@ -16,6 +16,7 @@ from .cache_parser import discover_cache_files, parse_cache_file
 from .constraints.resolution import ResolutionOracle
 from .evidence import build_manifest
 from .matcher import best_buddy_edges, dissimilarity_matrices
+from .ocr.engine import ocr_image, tesseract_available, words_to_records, words_to_text
 from .placement.edge_heuristic import mean_seam_cost
 from .placement.edge_heuristic import reconstruct as place_tiles
 from .segmentation import connected_components
@@ -70,7 +71,14 @@ def extract(source: str, output: str) -> None:
 @click.option("--max-scene", default=1500, show_default=True, help="Skip scenes larger than this (logged).")
 @click.option("--max-scenes", default=50, show_default=True, help="Cap rendered scenes (logged).")
 @click.option("--flat-threshold", default=10.0, show_default=True, help="Border variance below which an edge is ignored (flat-tile suppression). 0 disables.")
-def reconstruct(source, output, resolution, force, min_scene, max_scene, max_scenes, flat_threshold):
+@click.option("--ocr", is_flag=True, help="Run OCR on each reconstructed scene (requires the Tesseract binary).")
+@click.option("--ocr-lang", default="eng", show_default=True, help="Tesseract language(s), e.g. eng or eng+deu.")
+@click.option("--ocr-scale", default=6, show_default=True, help="Upscale factor before OCR.")
+@click.option("--ocr-min-conf", default=40.0, show_default=True, help="Drop OCR words below this confidence.")
+def reconstruct(
+    source, output, resolution, force, min_scene, max_scene, max_scenes, flat_threshold,
+    ocr, ocr_lang, ocr_scale, ocr_min_conf,
+):
     """Reconstruct screen regions from a cache by edge-matching tiles into scenes."""
     store = TileStore.load(source)
     unique = store.deduplicated()
@@ -125,17 +133,42 @@ def reconstruct(source, output, resolution, force, min_scene, max_scene, max_sce
         reconstructed.append((cost, len(comp), grid))
 
     reconstructed.sort(key=lambda r: r[0])  # ascending cost = most confident first
+
+    do_ocr = ocr
+    if ocr and not tesseract_available():
+        do_ocr = False
+        click.echo(
+            "[ocr] Tesseract binary not found - skipping OCR. Install it (Windows: "
+            "winget install UB-Mannheim.TesseractOCR) and ensure it's on PATH."
+        )
+
     scene_records = []
+    ocr_index = []
     for cost, n_tiles, grid in reconstructed[:max_scenes]:
         canvas = render(grid)
         rows = max(r for r, _ in grid) + 1
         cols = max(c for _, c in grid) + 1
-        name = f"scene_{len(scene_records):03d}_{n_tiles}tiles_{cols}x{rows}_conf{cost:.1f}.png"
+        idx = len(scene_records)
+        name = f"scene_{idx:03d}_{n_tiles}tiles_{cols}x{rows}_conf{cost:.1f}.png"
         Image.fromarray(canvas, "RGBA").save(os.path.join(output, name))
-        scene_records.append(
-            {"image": name, "tiles": n_tiles, "grid_cols": cols, "grid_rows": rows, "mean_seam_cost": round(cost, 2)}
-        )
+        record = {"image": name, "tiles": n_tiles, "grid_cols": cols, "grid_rows": rows, "mean_seam_cost": round(cost, 2)}
+
+        if do_ocr:
+            words = ocr_image(canvas, languages=ocr_lang, min_confidence=ocr_min_conf, scale=ocr_scale)
+            text = words_to_text(words)
+            record["ocr_text"] = text
+            record["ocr_words"] = words_to_records(words, scale=ocr_scale)
+            if text:
+                with open(os.path.join(output, name.replace(".png", ".txt")), "w", encoding="utf-8") as fh:
+                    fh.write(text)
+                ocr_index.append({"scene": name, "text": text})
+
+        scene_records.append(record)
     rendered = len(scene_records)
+
+    if do_ocr:
+        with open(os.path.join(output, "ocr_index.json"), "w", encoding="utf-8") as fh:
+            json.dump(ocr_index, fh, indent=2)
 
     manifest = build_manifest(discover_cache_files(source), command="reconstruct")
     manifest.update(
