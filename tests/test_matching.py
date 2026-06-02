@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from rdpieces.compatibility import INF, down_dissim, right_dissim
-from rdpieces.signatures import borders
+from rdpieces.signatures import border_variance, borders
 from rdpieces.tile import Tile
 
 
@@ -36,6 +36,15 @@ def test_right_dissim_lower_for_true_horizontal_neighbour():
     reversed_tile = tile_from_rgb(rgb[:, 64:][:, ::-1].copy())
 
     assert right_dissim(left, right) < right_dissim(left, reversed_tile)
+
+
+def test_border_variance_zero_for_solid_and_positive_for_gradient():
+    solid = tile_from_rgb(np.full((64, 64, 3), 100, np.uint8))
+    assert border_variance(solid)["top"] == 0.0
+
+    grad = np.repeat(np.linspace(0, 255, 64, dtype=np.uint8)[None, :], 64, axis=0)
+    textured = tile_from_rgb(np.dstack([grad, grad, grad]))
+    assert border_variance(textured)["top"] > 0.0
 
 
 def test_dissim_is_inf_on_dimension_mismatch():

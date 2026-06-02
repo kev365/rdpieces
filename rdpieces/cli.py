@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 
@@ -67,7 +68,8 @@ def extract(source: str, output: str) -> None:
 @click.option("--min-scene", default=6, show_default=True, help="Minimum tiles for a scene to be rendered.")
 @click.option("--max-scene", default=1500, show_default=True, help="Skip scenes larger than this (logged).")
 @click.option("--max-scenes", default=50, show_default=True, help="Cap rendered scenes (logged).")
-def reconstruct(source, output, resolution, force, min_scene, max_scene, max_scenes):
+@click.option("--flat-threshold", default=10.0, show_default=True, help="Border variance below which an edge is ignored (flat-tile suppression). 0 disables.")
+def reconstruct(source, output, resolution, force, min_scene, max_scene, max_scenes, flat_threshold):
     """Reconstruct screen regions from a cache by edge-matching tiles into scenes."""
     store = TileStore.load(source)
     unique = store.deduplicated()
@@ -87,8 +89,20 @@ def reconstruct(source, output, resolution, force, min_scene, max_scene, max_sce
     if len(full) < min_scene:
         raise click.ClickException(f"Only {len(full)} full tiles — nothing to reconstruct.")
 
-    right, down = dissimilarity_matrices(full)
+    right, down = dissimilarity_matrices(full, flat_threshold=flat_threshold or None)
     components = connected_components(len(full), best_buddy_edges(right, down))
+
+    # Bound the scene grid from the resolution constraint so the solver can't sprawl
+    # past one screen. Rows are confident when all candidates share a height.
+    if constraint.rows is not None:
+        rows_bound, cols_bound = constraint.rows, constraint.cols
+    elif constraint.candidates:
+        cand_rows = {math.ceil(h / 64) for _, h in constraint.candidates}
+        cand_cols = {math.ceil(w / 64) for w, _ in constraint.candidates}
+        rows_bound = cand_rows.pop() if len(cand_rows) == 1 else max(cand_rows)
+        cols_bound = max(cand_cols)
+    else:
+        rows_bound = cols_bound = None
 
     os.makedirs(output, exist_ok=True)
     candidate_scenes = [c for c in components if len(c) >= min_scene]
@@ -104,7 +118,10 @@ def reconstruct(source, output, resolution, force, min_scene, max_scene, max_sce
             continue
         idx = np.array(comp)
         sub = [full[i] for i in comp]
-        grid = place_tiles(sub, right[np.ix_(idx, idx)], down[np.ix_(idx, idx)])
+        grid = place_tiles(
+            sub, right[np.ix_(idx, idx)], down[np.ix_(idx, idx)],
+            max_rows=rows_bound, max_cols=cols_bound,
+        )
         canvas = render(grid)
         rows = max(r for r, _ in grid) + 1
         cols = max(c for _, c in grid) + 1

@@ -10,12 +10,16 @@ from __future__ import annotations
 
 import numpy as np
 
-from .signatures import borders
+from .signatures import border_variance, borders
 from .tile import Tile
 
 
 def _edge_stack(tiles: list[Tile], side: str) -> np.ndarray:
     return np.stack([borders(t)[side].reshape(-1) for t in tiles]).astype(np.float64)
+
+
+def _flat_mask(tiles: list[Tile], side: str, threshold: float) -> np.ndarray:
+    return np.array([border_variance(t)[side] < threshold for t in tiles], dtype=bool)
 
 
 def _dissim(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -28,10 +32,21 @@ def _dissim(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.maximum(out, 0.0)  # guard tiny negatives from float error (diagonal stays inf)
 
 
-def dissimilarity_matrices(tiles: list[Tile]) -> tuple[np.ndarray, np.ndarray]:
-    """Return (right, down) cost matrices; [i, j] = cost of j right-of-i / below-i."""
+def dissimilarity_matrices(
+    tiles: list[Tile], flat_threshold: float | None = None
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return (right, down) cost matrices; [i, j] = cost of j right-of-i / below-i.
+
+    If ``flat_threshold`` is given, edges touching a flat (solid-colour) border are
+    set to infinity so background tiles don't form spurious confident matches.
+    """
     right = _dissim(_edge_stack(tiles, "right"), _edge_stack(tiles, "left"))
     down = _dissim(_edge_stack(tiles, "bottom"), _edge_stack(tiles, "top"))
+    if flat_threshold is not None:
+        right[_flat_mask(tiles, "right", flat_threshold), :] = np.inf
+        right[:, _flat_mask(tiles, "left", flat_threshold)] = np.inf
+        down[_flat_mask(tiles, "bottom", flat_threshold), :] = np.inf
+        down[:, _flat_mask(tiles, "top", flat_threshold)] = np.inf
     return right, down
 
 

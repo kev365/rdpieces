@@ -22,11 +22,15 @@ def reconstruct(
     tiles: list[Tile],
     right: np.ndarray | None = None,
     down: np.ndarray | None = None,
+    max_rows: int | None = None,
+    max_cols: int | None = None,
 ) -> dict[tuple[int, int], Tile]:
     """Arrange tiles into a grid; returns {(row, col): Tile} normalised to (0, 0).
 
     ``right[i, j]`` / ``down[i, j]`` are the cost of placing tile j to the right of
     / below tile i (indexed by position in ``tiles``). Computed if not supplied.
+    ``max_rows`` / ``max_cols`` bound the grid span (from the resolution constraint),
+    so the solver can't sprawl past one screen.
     """
     n = len(tiles)
     if n == 0:
@@ -38,14 +42,25 @@ def reconstruct(
     used = np.zeros(n, dtype=bool)
     used[0] = True
 
+    def within_bounds(cell: tuple[int, int]) -> bool:
+        rows = [r for r, _ in placed] + [cell[0]]
+        cols = [c for _, c in placed] + [cell[1]]
+        if max_rows is not None and (max(rows) - min(rows) + 1) > max_rows:
+            return False
+        if max_cols is not None and (max(cols) - min(cols) + 1) > max_cols:
+            return False
+        return True
+
     while not used.all():
         unused = np.flatnonzero(~used)
         frontier: set[tuple[int, int]] = set()
         for (r, c) in placed:
             for dr, dc in _NEIGHBOUR_OFFSETS:
                 cell = (r + dr, c + dc)
-                if cell not in placed:
+                if cell not in placed and within_bounds(cell):
                     frontier.add(cell)
+        if not frontier:
+            break  # bounded grid is full; remaining tiles belong to another scene
 
         best_score, best_cell, best_idx = np.inf, None, None
         for (r, c) in frontier:

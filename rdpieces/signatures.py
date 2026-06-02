@@ -21,3 +21,9 @@ def borders(tile: Tile) -> dict[str, np.ndarray]:
         "left": rgb[:, 0, :],     # (H, 3)
         "right": rgb[:, -1, :],   # (H, 3)
     }
+
+
+def border_variance(tile: Tile) -> dict[str, float]:
+    """Per-side pixel-value variance. ~0 means a flat (solid-colour) border, which
+    matches any other same-colour border and therefore makes an unreliable edge."""
+    return {side: float(np.var(arr)) for side, arr in borders(tile).items()}

@@ -48,6 +48,17 @@ def adjacency_accuracy(grid: dict, cols: int) -> float:
     return correct / total if total else 0.0
 
 
+def test_reconstruct_respects_row_bound():
+    tiles = make_tiles(cols=4, rows=6)  # content is 6 rows tall
+    shuffled = tiles[:]
+    np.random.default_rng(2).shuffle(shuffled)
+
+    grid = reconstruct(shuffled, max_rows=3)
+
+    rows = max(r for r, _ in grid) + 1
+    assert rows <= 3  # solver must not exceed the bound even though content is taller
+
+
 def test_reconstructs_clean_image_with_high_adjacency_accuracy():
     cols, rows = 8, 6
     tiles = make_tiles(cols, rows)
