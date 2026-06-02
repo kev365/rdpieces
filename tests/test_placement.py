@@ -10,7 +10,8 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from rdpieces.placement.edge_heuristic import reconstruct
+from rdpieces.matcher import dissimilarity_matrices
+from rdpieces.placement.edge_heuristic import mean_seam_cost, reconstruct
 from rdpieces.tile import Tile
 
 
@@ -69,3 +70,15 @@ def test_reconstructs_clean_image_with_high_adjacency_accuracy():
 
     assert len(grid) == cols * rows
     assert adjacency_accuracy(grid, cols) >= 0.95
+
+
+def test_mean_seam_cost_low_for_correct_reconstruction():
+    cols, rows = 5, 4
+    tiles = make_tiles(cols, rows, seed=3)
+    shuffled = tiles[:]
+    np.random.default_rng(4).shuffle(shuffled)
+    right, down = dissimilarity_matrices(shuffled)
+    grid = reconstruct(shuffled, right, down)
+
+    cost = mean_seam_cost(grid, shuffled, right, down)
+    assert 0.0 <= cost < np.inf

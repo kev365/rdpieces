@@ -29,13 +29,22 @@ def _gradient_strip(cols: int) -> list[Tile]:
 
 def test_dissimilarity_matrix_matches_pairwise_compatibility():
     tiles = _gradient_strip(3)
-    right, _ = dissimilarity_matrices(tiles)
+    right, _ = dissimilarity_matrices(tiles, metric="ssd")
     for i in range(3):
         for j in range(3):
             if i != j:
                 # float64 matmul vs float32 pairwise differ only in rounding
                 assert np.isclose(right[i, j], right_dissim(tiles[i], tiles[j]), rtol=1e-4)
     assert np.isinf(right[0, 0])  # self has no adjacency
+
+
+def test_mgc_metric_ranks_true_neighbour_and_links_buddies():
+    tiles = _gradient_strip(4)  # true order 0|1|2|3
+    right, down = dissimilarity_matrices(tiles, metric="mgc")
+    # tile 0's best right successor under MGC is its true neighbour 1
+    assert int(np.argmin(right[0])) == 1
+    edges = {frozenset(e) for e in best_buddy_edges(right, down)}
+    assert frozenset((0, 1)) in edges and frozenset((2, 3)) in edges
 
 
 def test_best_buddies_link_true_horizontal_neighbours():

@@ -98,3 +98,23 @@ def reconstruct(
     min_r = min(r for r, _ in placed)
     min_c = min(c for _, c in placed)
     return {(r - min_r, c - min_c): tiles[idx] for (r, c), idx in placed.items()}
+
+
+def mean_seam_cost(
+    grid: dict[tuple[int, int], Tile],
+    tiles: list[Tile],
+    right: np.ndarray,
+    down: np.ndarray,
+) -> float:
+    """Average dissimilarity across placed adjacent seams (lower = more confident)."""
+    pos = {id(t): i for i, t in enumerate(tiles)}
+    cells = {cell: pos[id(t)] for cell, t in grid.items()}
+    costs = []
+    for (r, c), i in cells.items():
+        j = cells.get((r, c + 1))
+        if j is not None and np.isfinite(right[i, j]):
+            costs.append(right[i, j])
+        k = cells.get((r + 1, c))
+        if k is not None and np.isfinite(down[i, k]):
+            costs.append(down[i, k])
+    return float(np.mean(costs)) if costs else float("inf")

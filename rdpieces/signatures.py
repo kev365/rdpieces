@@ -23,6 +23,17 @@ def borders(tile: Tile) -> dict[str, np.ndarray]:
     }
 
 
+def inner_borders(tile: Tile) -> dict[str, np.ndarray]:
+    """The rows/cols one pixel in from each edge, for gradient extrapolation (MGC)."""
+    rgb = tile.pixels[..., :3].astype(np.float32)
+    return {
+        "top": rgb[1, :, :],
+        "bottom": rgb[-2, :, :],
+        "left": rgb[:, 1, :],
+        "right": rgb[:, -2, :],
+    }
+
+
 def border_variance(tile: Tile) -> dict[str, float]:
     """Per-side pixel-value variance. ~0 means a flat (solid-colour) border, which
     matches any other same-colour border and therefore makes an unreliable edge."""

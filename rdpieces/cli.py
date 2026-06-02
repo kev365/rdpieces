@@ -16,6 +16,7 @@ from .cache_parser import discover_cache_files, parse_cache_file
 from .constraints.resolution import ResolutionOracle
 from .evidence import build_manifest
 from .matcher import best_buddy_edges, dissimilarity_matrices
+from .placement.edge_heuristic import mean_seam_cost
 from .placement.edge_heuristic import reconstruct as place_tiles
 from .segmentation import connected_components
 from .tile_store import TileStore
@@ -106,29 +107,35 @@ def reconstruct(source, output, resolution, force, min_scene, max_scene, max_sce
 
     os.makedirs(output, exist_ok=True)
     candidate_scenes = [c for c in components if len(c) >= min_scene]
-    rendered = 0
+
+    # Reconstruct each candidate scene and score its seam confidence, then render
+    # the most-confident first (most-trustworthy reconstructions surface at the top).
+    reconstructed = []
     skipped_large = 0
-    scene_records = []
     for comp in candidate_scenes:
-        if rendered >= max_scenes:
-            break
         if len(comp) > max_scene:
             skipped_large += 1
             click.echo(f"[skip] scene of {len(comp)} tiles exceeds --max-scene {max_scene}")
             continue
         idx = np.array(comp)
         sub = [full[i] for i in comp]
-        grid = place_tiles(
-            sub, right[np.ix_(idx, idx)], down[np.ix_(idx, idx)],
-            max_rows=rows_bound, max_cols=cols_bound,
-        )
+        sub_right, sub_down = right[np.ix_(idx, idx)], down[np.ix_(idx, idx)]
+        grid = place_tiles(sub, sub_right, sub_down, max_rows=rows_bound, max_cols=cols_bound)
+        cost = mean_seam_cost(grid, sub, sub_right, sub_down)
+        reconstructed.append((cost, len(comp), grid))
+
+    reconstructed.sort(key=lambda r: r[0])  # ascending cost = most confident first
+    scene_records = []
+    for cost, n_tiles, grid in reconstructed[:max_scenes]:
         canvas = render(grid)
         rows = max(r for r, _ in grid) + 1
         cols = max(c for _, c in grid) + 1
-        name = f"scene_{rendered:03d}_{len(comp)}tiles_{cols}x{rows}.png"
+        name = f"scene_{len(scene_records):03d}_{n_tiles}tiles_{cols}x{rows}_conf{cost:.1f}.png"
         Image.fromarray(canvas, "RGBA").save(os.path.join(output, name))
-        scene_records.append({"image": name, "tiles": len(comp), "grid_cols": cols, "grid_rows": rows})
-        rendered += 1
+        scene_records.append(
+            {"image": name, "tiles": n_tiles, "grid_cols": cols, "grid_rows": rows, "mean_seam_cost": round(cost, 2)}
+        )
+    rendered = len(scene_records)
 
     manifest = build_manifest(discover_cache_files(source), command="reconstruct")
     manifest.update(
