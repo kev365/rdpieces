@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rdpieces"
+version = "2.0.0.dev0"
+description = "Automated RDP bitmap-cache reconstruction + OCR (Python rewrite of rdpieces.pl)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "LGPL-3.0-or-later"
+authors = [{ name = "rdpieces contributors" }]
+dependencies = [
+    "numpy>=1.24",
+    "pillow>=10",
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+# Heavier reconstruction/OCR/GUI deps land in later phases; kept optional so the
+# core parser/extractor installs everywhere (incl. brand-new Python versions).
+cv = ["opencv-python-headless>=4.8", "scikit-image>=0.22", "scipy>=1.11", "networkx>=3.0"]
+ocr = ["pytesseract>=0.3.10"]
+artifacts = ["python-registry>=1.3", "python-evtx>=0.7"]
+gui = ["PyQt6>=6.5"]
+report = ["reportlab>=4.0"]
+ml = ["torch>=2.1"]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+rdpieces = "rdpieces.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["rdpieces*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
