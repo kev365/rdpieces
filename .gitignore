@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# Large extracted test cache data — ship Test-Cache-Files.zip, not the unpacked GBs
+/Test-Cache-Files/
+
+# OS / editor
+.DS_Store
+Thumbs.db
